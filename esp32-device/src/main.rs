@@ -3,6 +3,7 @@
 
 // TODO: use embassy
 
+use common::get_info;
 use esp_backtrace as _;
 use esp_hal::{clock::ClockControl, delay::Delay, peripherals::Peripherals, prelude::*};
 use esp_println::println;
@@ -91,6 +92,7 @@ fn main() -> ! {
         if current_millis() >= next_send_time {
             next_send_time = current_millis() + 5 * 1000;
             println!("Send");
+            println!("{}", get_info());
             let status = esp_now
                 .send(&BROADCAST_ADDRESS, b"0123456789")
                 .unwrap()

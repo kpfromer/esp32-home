@@ -87,6 +87,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
+name = "common"
+version = "0.1.0"
+
+[[package]]
 name = "core-isa-parser"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -409,6 +413,7 @@ dependencies = [
 name = "esp32-home"
 version = "0.1.0"
 dependencies = [
+ "common",
  "embedded-io",
  "embedded-svc",
  "esp-backtrace",
