@@ -5,6 +5,14 @@ authors = ["Kyle Pfromer <kpfromer2@gmail.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
+[[bin]]
+name = "receiver"
+path = "src/main.rs"
+
+[[bin]]
+name = "transmitter"
+path = "src/transmitter.rs"
+
 [dependencies]
 esp-backtrace = { version = "0.11.0", features = [
     "esp32",
@@ -12,7 +20,7 @@ esp-backtrace = { version = "0.11.0", features = [
     "panic-handler",
     "println",
 ] }
-esp-hal = { version = "0.17.0", features = [ "esp32" ] }
+esp-hal = { version = "0.17.0", features = [ "esp32", "async", "embassy", "embassy-executor-thread", "embassy-integrated-timers", "embassy-time-timg0" ] }
 esp-println = { version = "0.9.0", features = ["esp32", "log"] }
 log = { version = "0.4.20" }
 embedded-svc = { version = "0.26.1", default-features = false, features = [] }
@@ -22,7 +30,8 @@ esp-wifi = { version = "0.5.0", features = [
     "phy-enable-usb",
     "utils",
     "wifi",
-    "esp-now"
+    "esp-now",
+    "async"
 ] }
 heapless = { version = "0.8.0", default-features = false }
 smoltcp = { version = "0.11.0", default-features = false, features = [
@@ -37,7 +46,12 @@ smoltcp = { version = "0.11.0", default-features = false, features = [
     "socket-udp",
 ] }
 
-# My custom
+# Embassy
+embassy-executor    = { version = "0.5.0", features = ["task-arena-size-8192"] }
+embassy-sync        = "0.5.0"
+embassy-time        = "0.3.0"
+
+# Shared code
 common = { path = "../common", version = "0.1.0" }
 
 [profile.dev]

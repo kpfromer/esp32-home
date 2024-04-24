@@ -8,4 +8,4 @@ edition = "2021"
 [dependencies]
 postcard = "1.0.8"
 serde = { version = "1.0.*", default-features = false }
-uom = "0.36.0"
+uom = { version = "0.36.0", default-features = false, features = ["u16", "si", "serde"] }

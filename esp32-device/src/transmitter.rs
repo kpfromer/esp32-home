@@ -98,44 +98,21 @@ async fn main(spawner: Spawner) {
     println!("Running sub task");
     spawner.spawn(run()).ok();
 
-    let r = esp_now.receive_async().await;
-    println!("Received {:?}", r);
-    if r.info.dst_address == BROADCAST_ADDRESS {
-        if !esp_now.peer_exists(&r.info.src_address) {
-            esp_now
-                .add_peer(PeerInfo {
-                    peer_address: r.info.src_address,
-                    lmk: None,
-                    channel: None,
-                    encrypt: false,
-                })
-                .unwrap();
-        }
-        // let status = esp_now.send_async(&r.info.src_address, b"Hello Peer").await;
-        // println!("Send hello to peer status: {:?}", status);
-    }
+    esp_now
+        .add_peer(PeerInfo {
+            peer_address: other_mac_address,
+            lmk: None,
+            channel: None,
+            encrypt: false,
+        })
+        .unwrap();
+
     loop {
-        let r = esp_now.receive_async().await;
-        println!("Received {:?}", r);
-        let data_str = core::str::from_utf8(&r.data[..(r.len as usize)]).ok();
-        println!("To string : {:?}", data_str);
+        let status = esp_now.send_async(&other_mac_address, b"Hello Peer").await;
+        println!("Send hello to peer status: {:?}", status);
+
+        Timer::after(Duration::from_millis(1_000)).await;
     }
-
-    // esp_now
-    //     .add_peer(PeerInfo {
-    //         peer_address: other_mac_address,
-    //         lmk: None,
-    //         channel: None,
-    //         encrypt: false,
-    //     })
-    //     .unwrap();
-
-    // loop {
-    //     let status = esp_now.send_async(&other_mac_address, b"Hello Peer").await;
-    //     println!("Send hello to peer status: {:?}", status);
-
-    //     Timer::after(Duration::from_millis(1_000)).await;
-    // }
 
     // println!("Running network task");
     // let mut next_send_time = current_millis() + 5 * 1000;
