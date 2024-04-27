@@ -53,6 +53,9 @@ embassy-time        = "0.3.0"
 
 # Shared code
 common = { path = "../common", version = "0.1.0" }
+postcard = "1.0.8"
+embedded-io-async = "0.6.1"
+static_cell = { version = "2.0.0", features = ["nightly"] }
 
 [profile.dev]
 # Rust debug is too slow. 

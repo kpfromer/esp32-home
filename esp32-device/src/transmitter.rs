@@ -2,7 +2,7 @@
 #![no_main]
 
 // TODO: use embassy
-use common::get_info;
+use common::{get_info, TemperatureReading};
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
@@ -14,7 +14,7 @@ use esp_wifi::{
     current_millis,
     esp_now::{PeerInfo, BROADCAST_ADDRESS},
 };
-use heapless::String;
+use heapless::{String, Vec};
 
 // #[entry]
 // fn main() -> ! {
@@ -107,11 +107,16 @@ async fn main(spawner: Spawner) {
         })
         .unwrap();
 
+    let mut buf = [0u8; 32];
     loop {
-        let status = esp_now.send_async(&other_mac_address, b"Hello Peer").await;
-        println!("Send hello to peer status: {:?}", status);
+        let reading = TemperatureReading {
+            deci_celsius: 1000u16,
+        };
+        let data  = postcard::to_slice(&reading, &mut buf).unwrap();
+        let status = esp_now.send_async(&other_mac_address, data).await;
+        println!("Sent data to peer status: {:?}", status);
 
-        Timer::after(Duration::from_millis(1_000)).await;
+        Timer::after(Duration::from_millis(3_000)).await;
     }
 
     // println!("Running network task");
