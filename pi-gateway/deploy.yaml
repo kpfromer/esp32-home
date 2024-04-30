@@ -1,0 +1,40 @@
+---
+- name: Deploy Code
+  hosts: main_node
+  gather_facts: no
+  vars:
+    user: "kpfromer"
+    bin_path: "/home/kpfromer/ip-camera"
+  become: true
+  tasks:
+    # - name: Create directories
+    #   file:
+    #     path: "{{ item }}"
+    #     state: directory
+    #     owner: kpfromer
+    #     group: kpfromer
+    #     mode: 0755
+    #   loop:
+    #     - /home/kpfromer/ip-camera
+
+    - name: Copy bin file
+      copy:
+        # For 32 bit
+        # src: ./target/arm-unknown-linux-gnueabihf/release/pi-gateway
+        src: ./target/aarch64-unknown-linux-gnu/release/pi-gateway
+
+        dest: /home/kpfromer/pi-gateway
+        owner: kpfromer
+        group: kpfromer
+        mode: 0755
+
+    # - name: Copy service file
+    #   template:
+    #     src: ip-camera.service.j2
+    #     dest: /lib/systemd/system/ip-camera.service
+
+    # - name: Start service
+    #   systemd:
+    #     name: ip-camera
+    #     state: restarted
+    #     enabled: true

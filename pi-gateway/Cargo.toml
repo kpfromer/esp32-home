@@ -12,3 +12,5 @@ common = { path = "../common", version = "0.1.0" }
 clap = { version = "4.5.4", features = ["derive"] }
 tokio = { version = "1.37.0", features = ["full"] }
 rumqttc = "0.24.0"
+rppal = "0.17.1"
+postcard = "1.0.8"

@@ -11,10 +11,14 @@ use esp_backtrace as _;
 use esp_hal::{
     clock::ClockControl,
     embassy,
+    gpio::IO,
     peripherals::{Peripherals, UART2},
     prelude::*,
     timer::TimerGroup,
-    uart::{config::AtCmdConfig, Uart, UartRx, UartTx},
+    uart::{
+        config::{AtCmdConfig, Config, DataBits, Parity, StopBits},
+        ClockSource, TxRxPins, Uart, UartRx, UartTx,
+    },
     Async,
 };
 use esp_println::println;
@@ -24,7 +28,8 @@ use static_cell::make_static;
 // rx_fifo_full_threshold
 const READ_BUF_SIZE: usize = 64;
 // EOT (CTRL-D)
-const AT_CMD: u8 = 0x04;
+// const AT_CMD: u8 = 0x04;
+const AT_CMD: u8 = b'h';
 
 #[embassy_executor::task]
 async fn writer(
@@ -37,8 +42,11 @@ async fn writer(
     loop {
         println!("UART received new message to write.");
         let notification = subscriber.next_message_pure().await;
-        postcard::to_slice(&notification, &mut buf).unwrap();
-        embedded_io_async::Write::write(&mut tx, &buf)
+
+        let data_size = postcard::to_slice(&notification, &mut buf[1..]).unwrap().len();
+        buf[0] = data_size.try_into().unwrap();
+
+        embedded_io_async::Write::write(&mut tx, &buf[..(1 + data_size)])
             .await
             .unwrap();
         embedded_io_async::Write::flush(&mut tx).await.unwrap();
@@ -87,6 +95,13 @@ async fn reader(mut rx: UartRx<'static, UART2, Async>) {
         let _r = embedded_io_async::Read::read(&mut rx, &mut rbuf).await.ok();
         // Do nothing with the data
         // Might want to have the reader alert writer that messaged was received
+
+        // TODO: remove
+
+        // let r = embedded_io_async::Read::read(&mut rx, &mut rbuf).await.ok();
+        // if let Some(size) = r {
+        //     println!("OUTPUT {:?}", core::str::from_utf8(&rbuf[0..size]));
+        // }
     }
 }
 
@@ -125,7 +140,26 @@ async fn main(spawner: Spawner) {
     println!("esp-now mac address: {:?}", mac_address);
     println!("other mac address: {:?}", other_mac_address);
 
-    let mut uart2 = Uart::new_async(peripherals.UART2, &clocks);
+    let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
+    let uart_pins = TxRxPins::new_tx_rx(
+        io.pins.gpio16.into_push_pull_output(),
+        io.pins.gpio17.into_floating_input(),
+    );
+    // let mut uart2 =
+    //     Uart::new_async_with_config(peripherals.UART2, Config::default(), Some(uart_pins), &clocks);
+    let mut uart2 = Uart::new_async_with_config(
+        peripherals.UART2,
+        Config::default(),
+        // Config {
+        //     baudrate: 19_200,
+        //     data_bits: DataBits::DataBits8,
+        //     parity: Parity::ParityNone,
+        //     stop_bits: StopBits::STOP1,
+        //     clock_source: ClockSource::RefTick,
+        // },
+        Some(uart_pins),
+        &clocks,
+    );
     uart2.set_at_cmd(AtCmdConfig::new(None, None, None, AT_CMD, None));
     uart2
         .set_rx_fifo_full_threshold(READ_BUF_SIZE as u16)
@@ -135,8 +169,8 @@ async fn main(spawner: Spawner) {
     let signal = &*make_static!(PubSubChannel::new());
 
     spawner.spawn(reader(rx)).ok();
-    spawner.spawn(writer(tx, &signal)).ok();
-    spawner.spawn(esp_now_listener(esp_now, &signal)).ok();
+    spawner.spawn(writer(tx, signal)).ok();
+    spawner.spawn(esp_now_listener(esp_now, signal)).ok();
 
     // esp_now
     //     .add_peer(PeerInfo {
