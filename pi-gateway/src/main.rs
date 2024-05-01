@@ -20,11 +20,21 @@ const PARITY: Parity = Parity::None;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    /// TODO: mqtt broker
-
     /// The uart device path to use to receive message from the esp32 device.
     #[arg(short, long, default_value = "/dev/serial0")]
     uart_device: String,
+
+    #[arg(short, long, default_value_t = 115_200u32)]
+    uart_baudrate: u32,
+
+    #[arg(short, long, default_value_t = 8u8)]
+    uart_data_bits: u8,
+
+    #[arg(short, long, default_value_t = 1u8)]
+    uart_stop_bits: u8,
+
+    #[arg(short, long, default_value_t = Parity::None)]
+    uart_parity: Party,
 
     #[arg(short, long)]
     mqtt_broker_address: String,
