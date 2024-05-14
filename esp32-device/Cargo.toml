@@ -5,6 +5,10 @@ authors = ["Kyle Pfromer <kpfromer2@gmail.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
+[features]
+default = []
+no-print = ["esp-println/no-op"]
+
 [[bin]]
 name = "receiver"
 path = "src/main.rs"
@@ -12,6 +16,14 @@ path = "src/main.rs"
 [[bin]]
 name = "transmitter"
 path = "src/transmitter.rs"
+
+[[bin]]
+name = "transmitter_deep_sleep"
+path = "src/transmitter_deep_sleep.rs"
+
+[[bin]]
+name = "test_ez"
+path = "src/test_ez.rs"
 
 [dependencies]
 esp-backtrace = { version = "0.11.0", features = [
@@ -56,6 +68,7 @@ common = { path = "../common", version = "0.1.0" }
 postcard = "1.0.8"
 embedded-io-async = "0.6.1"
 static_cell = { version = "2.0.0", features = ["nightly"] }
+embedded-hal-async = "1.0.0"
 
 [profile.dev]
 # Rust debug is too slow. 

@@ -1,5 +1,5 @@
 use clap::Parser;
-use common::{get_info, Notification, TemperatureReading};
+use common::{get_info, EspNowMacAddress, Notification, TemperatureReading};
 use rppal::uart::{Parity, Uart};
 use rumqttc::{AsyncClient, Client, MqttOptions, QoS};
 use std::thread;
@@ -33,9 +33,8 @@ struct Args {
     #[arg(short, long, default_value_t = 1u8)]
     uart_stop_bits: u8,
 
-    #[arg(short, long, default_value_t = Parity::None)]
-    uart_parity: Party,
-
+    // #[arg(short, long, default_value_t = Parity::None)]
+    // uart_parity: Parity,
     #[arg(short, long)]
     mqtt_broker_address: String,
 
@@ -43,94 +42,97 @@ struct Args {
     mqtt_broker_port: u16,
 }
 
+fn read_uart_data<'a>(uart: &mut Uart, data_buffer: &'a mut [u8; 256]) -> &'a [u8] {
+    let mut len_buffer = [0_u8; 1];
+    let mut i = 0;
+    loop {
+        match uart.read(&mut len_buffer) {
+            Ok(size) if size > 0 => {
+                let data_size = len_buffer[0] as usize;
+                while i < data_size {
+                    match uart.read(&mut len_buffer) {
+                        Ok(size) if size > 0 => {
+                            data_buffer[i] = len_buffer[0];
+                            i += 1;
+                        }
+                        _ => continue,
+                    }
+                }
+
+                return &data_buffer[..(data_size as usize)];
+            }
+            _ => thread::sleep(Duration::from_millis(5)),
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // TODO: get solid logging up
     let Args {
         uart_device,
+        uart_baudrate,
+        uart_data_bits,
+        uart_stop_bits,
+        // uart_parity,
         mqtt_broker_address,
         mqtt_broker_port,
     } = Args::parse();
-    println!("{}", get_info());
-    println!("Hello, world!");
+
+    println!("running!!!");
 
     let mut mqttoptions = MqttOptions::new("rumqtt-async", mqtt_broker_address, mqtt_broker_port);
     mqttoptions.set_keep_alive(Duration::from_secs(5));
 
     let (mut client, mut connection) = Client::new(mqttoptions, 10);
 
-    // Spawning a thread since this is synchronous work that runs forever
     thread::spawn(move || {
-        // TODO: consume data from channel to send via mqtt
         for (i, notification) in connection.iter().enumerate() {
             println!("Notification = {:?}", notification);
         }
     });
 
-    let mut uart = Uart::with_path(uart_device, BAUD_RATE, PARITY, DATA_BITS, STOP_BITS)?;
-    let mut len_buffer = [0_u8; 1];
+    let mut uart = Uart::with_path(
+        uart_device,
+        uart_baudrate,
+        PARITY,
+        // uart_parity,
+        uart_data_bits,
+        uart_stop_bits,
+    )?;
     let mut data_buffer = [0_u8; 256];
-    // TODO: update
-
     uart.set_read_mode(1, Duration::ZERO)?;
     loop {
-        let mut i = 0;
-        match uart.read(&mut len_buffer) {
-        Ok(size) if size > 0 => {
-                let data_size = len_buffer[0] as usize;
-                println!("Data size {}", data_size);
-
-                while i < data_size {
-                match uart.read(&mut len_buffer) {
-                    Ok(size) if size > 0 => {
-                        data_buffer[i] = len_buffer[0];
-                        i += 1;
-                    }
-                    _ => {
-                        println!("NOTHING");
-                    }
+        let data = read_uart_data(&mut uart, &mut data_buffer);
+        let notification = postcard::from_bytes::<Notification<TemperatureReading>>(data).unwrap();
+        let topic = {
+            if notification.src == EspNowMacAddress([12, 139, 149, 66, 103, 160]) {
+                "mushrooms/temperature-humidity-sensor"
+            } else if notification.src == EspNowMacAddress([100, 183, 8, 194, 244, 32]) {
+                "mushrooms/epulse-temperature-humidity-sensor"
+            } else if notification.src == EspNowMacAddress([100, 183, 8, 194, 244, 40]) {
+                "mushroom-container/epulse-temperature-humidity-sensor"
+            } else {
+                "unknown"
             }
+        };
 
-                }
+        let temp = notification.data.temperature_celsius;
+        println!("Notification {:?}", notification);
+        let json = format!(
+            "{{ \"temperature\": {}, \"humidity\": {} }}",
+            temp, notification.data.humidity_percentage
+        );
+        println!("Print data: {:?}", json);
 
-                        // println!("Size {}", size);
-                        println!("buffer {:?}", data_buffer);
-                        let notification =
-                            postcard::from_bytes::<Notification<TemperatureReading>>(
-    &data_buffer[..(data_size as usize)],
-                            )
-                            .unwrap();
-                        println!("Notification {:?}", notification);
-            client.publish("test", QoS::AtLeastOnce, false, format!("{:?}", notification)).unwrap();
-            }
-            _ => {thread::sleep(Duration::from_millis(5))}
-            // Ok(size) if size > 0 => {
-            //     let data_size = buffer[0];
-            //     uart.set_read_mode(data_size, Duration::ZERO)?;
-
-            //     match uart.read(&mut buffer) {
-            //         Ok(size) if size > 0 => {
-            //             // println!("Size {}", size);
-            //             println!("buffer {:?}", buffer);
-            //             let notification =
-            //                 postcard::from_bytes::<Notification<TemperatureReading>>(
-            //                     &buffer[..(data_size as usize)],
-            //                 )
-            //                 .unwrap();
-            //             println!("Notification {:?}", notification);
-            //         }
-            //         _ => {
-            //             println!("NOTHING");
-            //         }
-            //     }
-            // }
-            // _ => continue,
-        }
+        client
+            .publish(
+                // [area]/[name]/
+                topic,
+                QoS::AtLeastOnce,
+                false,
+                json,
+            )
+            .unwrap();
     }
-
-    // Listen for UART data and create a mqtt message
-    // client.publish("hello/rumqtt", QoS::AtLeastOnce, false, vec![i; i as usize]).await.unwrap();
-
-    Ok(())
 }
-
-// TODO: an mqtt gateway - reads in data from uart and translates it to an mqtt message

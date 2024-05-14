@@ -6,39 +6,28 @@ mod dht20;
 
 use dht20::Dht20;
 
-// TODO: use embassy
 use common::TemperatureReading;
+use core::time::Duration as CoreDuration;
 use embassy_executor::Spawner;
-// TODO: don't use NOOP since it's dual core (move to dual core usage)
-use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 use esp_hal::{
     clock::ClockControl,
+    delay::Delay,
     embassy,
     gpio::{GpioPin, Output, PushPull, IO},
     i2c::I2C,
     peripherals::Peripherals,
     prelude::*,
+    rtc_cntl::{get_reset_reason, get_wakeup_cause, sleep::TimerWakeupSource, Rtc, SocResetReason},
     timer::TimerGroup,
+    Cpu,
 };
 use esp_println::println;
 use esp_wifi::esp_now::PeerInfo;
-use static_cell::make_static;
 
-#[embassy_executor::task]
-async fn led(
-    mut led_pin: GpioPin<Output<PushPull>, 18>,
-    signal: &'static Signal<NoopRawMutex, bool>,
-) {
-    loop {
-        signal.wait().await;
-        led_pin.set_high();
-        Timer::after(Duration::from_millis(1_000)).await;
-        led_pin.set_low();
-        Timer::after(Duration::from_millis(1_000)).await;
-    }
-}
+const INTERVAL: CoreDuration = CoreDuration::from_secs(60 * 5);
+const ESP_GATEWAY: [u8; 6] = [12, 139, 149, 66, 112, 36];
 
 /// Embassy notes:
 /// Blocked interupts: https://github.com/esp-rs/esp-hal/blob/3dfea214d45562ef8eefe410003d083ae2c14f98/esp-hal/src/system.rs#L213
@@ -48,14 +37,18 @@ async fn led(
 /// TODO: deep sleep
 /// good deep sleep article: https://randomnerdtutorials.com/esp32-external-wake-up-deep-sleep/
 #[main]
-async fn main(spawner: Spawner) {
-    // Main with espnow
+async fn main(_spawner: Spawner) {
     let peripherals = Peripherals::take();
     let system = peripherals.SYSTEM.split();
 
-    // TODO: don't use max speed, use `boot_defaults` (lowest speed) instead
+    // Lowest speed clocks are used from `boot_defaults`
+    // However, the wifi driver requires we use the highest clock speeds
     let clocks = ClockControl::max(system.clock_control).freeze();
 
+    let mut delay = Delay::new(&clocks);
+    let mut rtc = Rtc::new(peripherals.LPWR, None);
+
+    #[cfg(not(feature = "no-print"))]
     esp_println::logger::init_logger_from_env();
 
     let timg0 = TimerGroup::new_async(peripherals.TIMG0, &clocks);
@@ -72,51 +65,42 @@ async fn main(spawner: Spawner) {
     .unwrap();
     let wifi = peripherals.WIFI;
     let mut esp_now = esp_wifi::esp_now::EspNow::new(&init, wifi).unwrap();
-    // println!("esp-now version {}", esp_now.get_version().unwrap());
-    // let mac_address = esp_hal::efuse::Efuse::get_mac_address();
-    let other_mac_address: [u8; 6] = [12, 139, 149, 66, 112, 36];
-    // println!("esp-now mac address: {:?}", mac_address);
-    // println!("other mac address: {:?}", other_mac_address);
+    esp_now
+        .add_peer(PeerInfo { peer_address: ESP_GATEWAY, lmk: None, channel: None, encrypt: false })
+        .unwrap();
 
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
 
     let i2c0 = I2C::new_async(
         peripherals.I2C0,
-        // TODO: check if good
-        io.pins.gpio26,
-        io.pins.gpio27,
+        // SDA
+        io.pins.gpio22,
+        // SCL
+        io.pins.gpio23,
         400.kHz(),
         &clocks,
     );
     let mut temp_sensor = Dht20::new(i2c0, 0x38);
 
-    let led_signal = &*make_static!(Signal::new());
-    let led_pin = io.pins.gpio18.into_push_pull_output();
-    spawner.spawn(led(led_pin, led_signal)).unwrap();
+    #[cfg(not(feature = "no-print"))]
+    println!("up and runnning!");
+    let reason = get_reset_reason(Cpu::ProCpu).unwrap_or(SocResetReason::ChipPowerOn);
+    #[cfg(not(feature = "no-print"))]
+    println!("reset reason: {:?}", reason);
+    let wake_reason = get_wakeup_cause();
+    #[cfg(not(feature = "no-print"))]
+    println!("wake reason: {:?}", wake_reason);
 
-    esp_now
-        .add_peer(PeerInfo {
-            peer_address: other_mac_address,
-            lmk: None,
-            channel: None,
-            encrypt: false,
-        })
-        .unwrap();
+    let result = temp_sensor.read().await.unwrap();
+    #[cfg(not(feature = "no-print"))]
+    println!("Temp: {} °C, Hum: {} %", result.temp, result.hum);
 
     let mut buf = [0u8; 32];
-    loop {
-        let result = temp_sensor.read().await.unwrap();
-        println!("Temp: {} °C, Hum: {} %", result.temp, result.hum);
+    let reading =
+        TemperatureReading { temperature_celsius: result.temp, humidity_percentage: result.hum };
+    let data = postcard::to_slice(&reading, &mut buf).unwrap();
+    let _status = esp_now.send_async(&ESP_GATEWAY, data).await;
 
-        let reading = TemperatureReading {
-            temperature_celsius: result.temp,
-            humidity_percentage: result.hum,
-        };
-        let data = postcard::to_slice(&reading, &mut buf).unwrap();
-        let status = esp_now.send_async(&other_mac_address, data).await;
-        println!("Sent data to peer status: {:?}", status);
-        led_signal.signal(true);
-
-        Timer::after(Duration::from_millis(3_000)).await;
-    }
+    let timer = TimerWakeupSource::new(INTERVAL);
+    rtc.sleep_deep(&[&timer], &mut delay);
 }

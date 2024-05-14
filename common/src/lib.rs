@@ -10,14 +10,15 @@ pub struct EspNowMacAddress(pub [u8; 6]);
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct TemperatureReading {
     // temperature: ThermodynamicTemperature<milli_celsius>,
-    pub deci_celsius: u16,
+    pub temperature_celsius: f32,
+    pub humidity_percentage: f32,
 }
 
-impl TemperatureReading {
-    pub fn celsius(&self) -> f32 {
-        self.deci_celsius as f32 / 10.0
-    }
-}
+// impl TemperatureReading {
+//     pub fn celsius(&self) -> f32 {
+//         self.deci_celsius as f32 / 10.0
+//     }
+// }
 
 pub enum NotificationData {}
 

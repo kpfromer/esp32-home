@@ -4,6 +4,7 @@
 
 use common::{EspNowMacAddress, Notification, TemperatureReading};
 use embassy_executor::Spawner;
+// TODO: don't use NOOP since it's dual core (move to dual core usage)
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::pubsub::PubSubChannel;
 
@@ -37,20 +38,23 @@ async fn writer(
     // Capacity for 5 items, 1 subscriber and 1 publisher
     data_channel: &'static PubSubChannel<NoopRawMutex, Notification<TemperatureReading>, 5, 1, 1>,
 ) {
+    println!("Spawned UART writer.");
     let mut subscriber = data_channel.subscriber().unwrap();
     let mut buf: [u8; 256] = [0; 256];
     loop {
         println!("UART received new message to write.");
         let notification = subscriber.next_message_pure().await;
 
-        let data_size = postcard::to_slice(&notification, &mut buf[1..]).unwrap().len();
+        let data_size = postcard::to_slice(&notification, &mut buf[1..])
+            .unwrap()
+            .len();
         buf[0] = data_size.try_into().unwrap();
 
         embedded_io_async::Write::write(&mut tx, &buf[..(1 + data_size)])
             .await
             .unwrap();
         embedded_io_async::Write::flush(&mut tx).await.unwrap();
-        println!("Written to UART 2.");
+        println!("Written message to UART.");
     }
 }
 
@@ -59,6 +63,7 @@ async fn esp_now_listener(
     mut esp_now: esp_wifi::esp_now::EspNow<'static>,
     data_channel: &'static PubSubChannel<NoopRawMutex, Notification<TemperatureReading>, 5, 1, 1>,
 ) {
+    println!("Spawned esp now listener.");
     let publisher = data_channel.publisher().unwrap();
     loop {
         let message = esp_now.receive_async().await;
@@ -71,23 +76,23 @@ async fn esp_now_listener(
                     encrypt: false,
                 })
                 .unwrap();
-            println!("ESP-NOW added new peer.");
+            println!("esp-now added new peer - {:?}.", message.info.src_address);
         }
-        println!("Received {:?}", message);
         let reading =
             postcard::from_bytes::<TemperatureReading>(&message.data[..(message.len as usize)])
                 .unwrap();
-        println!("Data: {:?}", reading);
         let notification = Notification::<TemperatureReading> {
             src: EspNowMacAddress(message.info.src_address),
             data: reading,
         };
+        println!("Received message. Relaying to raspberry pi via UART.");
         publisher.publish_immediate(notification);
     }
 }
 
 #[embassy_executor::task]
 async fn reader(mut rx: UartRx<'static, UART2, Async>) {
+    println!("Spawned UART reader.");
     const MAX_BUFFER_SIZE: usize = 10 * READ_BUF_SIZE + 16;
 
     let mut rbuf: [u8; MAX_BUFFER_SIZE] = [0u8; MAX_BUFFER_SIZE];
@@ -132,13 +137,20 @@ async fn main(spawner: Spawner) {
         &clocks,
     )
     .unwrap();
+
+
     let wifi = peripherals.WIFI;
     let esp_now = esp_wifi::esp_now::EspNow::new(&init, wifi).unwrap();
-    println!("esp-now version {}", esp_now.get_version().unwrap());
+
     let mac_address = esp_hal::efuse::Efuse::get_mac_address();
     let other_mac_address: [u8; 6] = [12, 139, 149, 66, 112, 36];
+
+
+    println!("Starting up ESP32 receiver.");
+    println!("Data will be forwarded to a raspberry pi over UART.");
+    println!("esp-now version {}", esp_now.get_version().unwrap());
     println!("esp-now mac address: {:?}", mac_address);
-    println!("other mac address: {:?}", other_mac_address);
+    println!("------------------", );
 
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
     let uart_pins = TxRxPins::new_tx_rx(
@@ -171,58 +183,4 @@ async fn main(spawner: Spawner) {
     spawner.spawn(reader(rx)).ok();
     spawner.spawn(writer(tx, signal)).ok();
     spawner.spawn(esp_now_listener(esp_now, signal)).ok();
-
-    // esp_now
-    //     .add_peer(PeerInfo {
-    //         peer_address: other_mac_address,
-    //         lmk: None,
-    //         channel: None,
-    //         encrypt: false,
-    //     })
-    //     .unwrap();
-
-    // loop {
-    //     let status = esp_now.send_async(&other_mac_address, b"Hello Peer").await;
-    //     println!("Send hello to peer status: {:?}", status);
-
-    //     Timer::after(Duration::from_millis(1_000)).await;
-    // }
-
-    // println!("Running network task");
-    // let mut next_send_time = current_millis() + 5 * 1000;
-    // loop {
-    //     let r = esp_now.receive();
-    //     if let Some(r) = r {
-    //         println!("Received {:?}", r);
-
-    //         if r.info.dst_address == BROADCAST_ADDRESS {
-    //             if !esp_now.peer_exists(&r.info.src_address) {
-    //                 esp_now
-    //                     .add_peer(PeerInfo {
-    //                         peer_address: r.info.src_address,
-    //                         lmk: None,
-    //                         channel: None,
-    //                         encrypt: false,
-    //                     })
-    //                     .unwrap();
-    //             }
-    //             let status = esp_now
-    //                 .send(&r.info.src_address, b"Hello Peer")
-    //                 .unwrap()
-    //                 .wait();
-    //             println!("Send hello to peer status: {:?}", status);
-    //         }
-    //     }
-
-    //     if current_millis() >= next_send_time {
-    //         next_send_time = current_millis() + 5 * 1000;
-    //         println!("Send");
-    //         println!("{}", get_info());
-    //         let status = esp_now
-    //             .send(&BROADCAST_ADDRESS, b"0123456789")
-    //             .unwrap()
-    //             .wait();
-    //         println!("Send broadcast status: {:?}", status)
-    //     }
-    // }
 }
